@@ -82,7 +82,7 @@ class Program : Form
     {
         this.trayIcon = new NotifyIcon
         {
-            Icon = new Icon(this.GetType().Assembly.GetManifestResourceStream("icon.ico")),
+            Icon = new Icon(this.GetType().Assembly.GetManifestResourceStream("app.Resources.icon.ico")),
             ContextMenuStrip = new ContextMenuStrip(),
             Visible = true
         };

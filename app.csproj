@@ -3,12 +3,17 @@
     <AssemblyName>RoblosMultis</AssemblyName>
     <OutputType>WinExe</OutputType>
     <TargetFramework>net7.0-windows</TargetFramework>
+    <RollForward>Major</RollForward>
     <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>false</UseWPF>
-    <ApplicationIcon>../icon.ico</ApplicationIcon>
+    <ApplicationIcon>Resources/icon.ico</ApplicationIcon>
     <Win32Manifest>app.manifest</Win32Manifest>
     <NoWarn>NETSDK1137</NoWarn>
   </PropertyGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="Resources/icon.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="System.Management" Version="7.0.0" />
