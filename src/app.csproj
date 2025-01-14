@@ -5,7 +5,7 @@
     <TargetFramework>net7.0-windows</TargetFramework>
     <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>false</UseWPF>
-    <ApplicationIcon>icon.ico</ApplicationIcon>
+    <ApplicationIcon>../icon.ico</ApplicationIcon>
     <Win32Manifest>app.manifest</Win32Manifest>
     <NoWarn>NETSDK1137</NoWarn>
   </PropertyGroup>

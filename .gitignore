@@ -1,4 +1,3 @@
 *.sln
-bin/debug/*
-src/bin/
 src/obj/
+src/bin/
