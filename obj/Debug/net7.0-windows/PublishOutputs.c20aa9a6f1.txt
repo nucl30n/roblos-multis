@@ -1,7 +1,0 @@
-C:\cs\roblos-multis\bin\Debug\net7.0-windows\publish\RoblosMultis.exe
-C:\cs\roblos-multis\bin\Debug\net7.0-windows\publish\RoblosMultis.dll
-C:\cs\roblos-multis\bin\Debug\net7.0-windows\publish\RoblosMultis.deps.json
-C:\cs\roblos-multis\bin\Debug\net7.0-windows\publish\RoblosMultis.runtimeconfig.json
-C:\cs\roblos-multis\bin\Debug\net7.0-windows\publish\RoblosMultis.pdb
-C:\cs\roblos-multis\bin\Debug\net7.0-windows\publish\System.Management.dll
-C:\cs\roblos-multis\bin\Debug\net7.0-windows\publish\runtimes\win\lib\net7.0\System.Management.dll
