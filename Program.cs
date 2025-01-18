@@ -67,7 +67,7 @@ class Program : Form
         AppDomain.CurrentDomain.UnhandledException += (sender, args) =>
         {
             Exception e = (Exception)args.ExceptionObject;
-            MessageBox.Show("Unhandled exception: " + e.Message + "\n" + e.StackTrace);
+            _ = MessageBox.Show("Unhandled exception: " + e.Message + "\n" + e.StackTrace);
         };
 
         if (!CheckDotNet()) return;
@@ -89,8 +89,8 @@ class Program : Form
         this.WindowState = FormWindowState.Minimized;
         this.ShowInTaskbar = false;
         this.menuStatus = new ToolStripMenuItem { Enabled = false };
-        this.trayIcon.ContextMenuStrip.Items.Add(this.menuStatus);
-        this.trayIcon.ContextMenuStrip.Items.Add("Exit", null, (s, e) =>
+        _ = this.trayIcon.ContextMenuStrip.Items.Add(this.menuStatus);
+        _ = this.trayIcon.ContextMenuStrip.Items.Add("Exit", null, (s, e) =>
         {
             this.trayIcon.Visible = false;
             Application.Exit();
@@ -116,7 +116,7 @@ class Program : Form
         };
 
         this.Watcher.Start();
-        Task.Run(() => this.MainLoop());
+        _ = Task.Run(() => this.MainLoop());
     }
 
     static bool CheckDotNet()
@@ -144,12 +144,12 @@ class Program : Form
 
     static bool ShowErrorAndPrompt()
     {
-        MessageBox.Show("The required .NET runtime is not installed. Please install the latest .NET runtime from the official website.",
+        _ = MessageBox.Show("The required .NET runtime is not installed. Please install the latest .NET runtime from the official website.",
                         "Runtime Missing",
                         MessageBoxButtons.OK,
                         MessageBoxIcon.Error);
 
-        Process.Start(new ProcessStartInfo
+        _ = Process.Start(new ProcessStartInfo
         {
             FileName = "https://dotnet.microsoft.com/download",
             UseShellExecute = true
@@ -184,23 +184,19 @@ class Program : Form
             else
             {
                 await Task.Delay(50);
-                await ProcessSingleQueueItem();
+                await ProcessQueued();
             }
         }
     }
 
-    private async Task ProcessSingleQueueItem()
+    private async Task ProcessQueued()
     {
-        Process currentProcess = null;
+        Process currentProcess = this.ProcQueue.Peek();
         try
         {
-            currentProcess = this.ProcQueue.Peek();
-            await this.UpdateHandleList(currentProcess);
-
-            bool handlesClosed = await this.closeHandles(currentProcess);
-            if (handlesClosed)
+            if (await this.CloseHandles(await this.UpdateHandleList(currentProcess)))
             {
-                this.ProcQueue.Dequeue();
+                _ = this.ProcQueue.Dequeue();
             }
             else
             {
@@ -219,14 +215,14 @@ class Program : Form
         this.ProcQueue.Enqueue(this.ProcQueue.Dequeue());
     }
 
-    private async Task<bool> closeHandles(Process process)
+    private async Task<bool> CloseHandles(Process process)
     {
         const uint MAXIMUM_ALLOWED = 0x02000000;
         const uint PROCESS_DUP_HANDLE = 0x00000040;
         IntPtr processHandle = OpenProcess(PROCESS_DUP_HANDLE, false, process.Id);
         if (processHandle == IntPtr.Zero) return false;
 
-        Queue<string> tdl = new Queue<string>(this.OrderedHandles);
+        Queue<string> tdl = new(this.OrderedHandles);
 
         while (tdl.Count > 0)
         {
@@ -244,19 +240,19 @@ class Program : Form
                 }
 
                 int returnLength = 0;
-                NtQueryObject(dup, 1, alloc, 0x10000, ref returnLength);
+                _ = NtQueryObject(dup, 1, alloc, 0x10000, ref returnLength);
                 NAME nameInfo = (NAME)Marshal.PtrToStructure(alloc, typeof(NAME));
                 string name = nameInfo.Name.Buffer != IntPtr.Zero ? Marshal.PtrToStringUni(nameInfo.Name.Buffer, nameInfo.Name.Length / 2) : null;
 
                 if (name != null && name.IndexOf(target, StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     found = true;
-                    await this.ForceClose(h, processHandle);
-                    tdl.Dequeue();
+                    _ = await ForceClose(h, processHandle);
+                    _ = tdl.Dequeue();
                 }
 
                 Marshal.FreeHGlobal(alloc);
-                NtClose(dup);
+                _ = NtClose(dup);
 
                 if (found) break;
             }
@@ -264,54 +260,55 @@ class Program : Form
             if (!found) break;
         }
 
-        CloseHandle(processHandle);
+        _ = CloseHandle(processHandle);
 
         return tdl.Count == 0;
     }
 
-    private async Task<bool> ForceClose(IntPtr handle, IntPtr processHandle)
+    private static async Task<bool> ForceClose(IntPtr handle, IntPtr processHandle)
     {
         return await Task.Run(() =>
         {
-            IntPtr dupHandle;
-            bool result = DuplicateHandle(processHandle, handle, GetCurrentProcess(), out dupHandle, 0, false, 0x00000001);
-            NtClose(dupHandle);
+            bool result = DuplicateHandle(processHandle, handle, GetCurrentProcess(), out nint dupHandle, 0, false, 0x00000001);
+            _ = NtClose(dupHandle);
             return result;
         });
     }
 
-    private async Task UpdateHandleList(Process process)
+    private async Task<Process> UpdateHandleList(Process process)
     {
-        await Task.Run(() =>
-        {
-            int dataSize = 0x10000, length = 0;
-            IntPtr dataPtr = Marshal.AllocHGlobal(dataSize);
+        return await Task.Run(() =>
+         {
+             int dataSize = 0x10000, length = 0;
+             IntPtr dataPtr = Marshal.AllocHGlobal(dataSize);
 
-            try
-            {
-                while (NtQuerySystemInformation(16, dataPtr, dataSize, ref length) == unchecked((int)0xC0000004))
-                {
-                    dataSize = length;
-                    Marshal.FreeHGlobal(dataPtr);
-                    dataPtr = Marshal.AllocHGlobal(length);
-                }
+             try
+             {
+                 while (NtQuerySystemInformation(16, dataPtr, dataSize, ref length) == unchecked((int)0xC0000004))
+                 {
+                     dataSize = length;
+                     Marshal.FreeHGlobal(dataPtr);
+                     dataPtr = Marshal.AllocHGlobal(length);
+                 }
 
-                IntPtr itemPtr = dataPtr + IntPtr.Size;
-                int handleCount = Marshal.ReadInt32(dataPtr);
-                for (int i = 0; i < handleCount; i++, itemPtr += Marshal.SizeOf(typeof(HANDLE)))
-                {
-                    HANDLE handleInfo = (HANDLE)Marshal.PtrToStructure(itemPtr, typeof(HANDLE));
-                    if (handleInfo.ProcessId == process.Id) this.Handles.Add(new IntPtr(handleInfo.Handle));
-                }
-            }
-            catch (Exception ex)
-            {
-                throw new InvalidOperationException("Failed to retrieve handle list for process " + process.Id, ex);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(dataPtr);
-            }
-        });
+                 IntPtr itemPtr = dataPtr + IntPtr.Size;
+                 int handleCount = Marshal.ReadInt32(dataPtr);
+                 for (int i = 0; i < handleCount; i++, itemPtr += Marshal.SizeOf(typeof(HANDLE)))
+                 {
+                     HANDLE handleInfo = (HANDLE)Marshal.PtrToStructure(itemPtr, typeof(HANDLE));
+                     if (handleInfo.ProcessId == process.Id) _ = this.Handles.Add(new IntPtr(handleInfo.Handle));
+                 }
+             }
+             catch (Exception ex)
+             {
+                 throw new InvalidOperationException("Failed to retrieve handle list for process " + process.Id, ex);
+             }
+             finally
+             {
+                 Marshal.FreeHGlobal(dataPtr);
+             }
+
+             return process;
+         });
     }
 }
