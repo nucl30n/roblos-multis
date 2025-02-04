@@ -8,41 +8,44 @@ using System.Collections.Generic;
 using System.Management;
 using Microsoft.Win32;
 
-class Program : Form
+public static class NTapi
 {
     [DllImport("ntdll.dll")]
-    private static extern int NtQuerySystemInformation(int SystemInformationClass, IntPtr SystemInformation, int SystemInformationLength, ref int ReturnLength);
-    [DllImport("ntdll.dll")]
-    private static extern int NtQueryObject(IntPtr Handle, int ObjectInformationClass, IntPtr ObjectInformation, int ObjectInformationLength, ref int ReturnLength);
-    [DllImport("ntdll.dll")]
-    private static extern int NtClose(IntPtr Handle);
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool DuplicateHandle(IntPtr hSourceProcessHandle, IntPtr hSourceHandle, IntPtr hTargetProcessHandle, out IntPtr lpTargetHandle, uint dwDesiredAccess, bool bInheritHandle, uint dwOptions);
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr GetCurrentProcess();
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern IntPtr OpenProcess(uint processAccess, bool bInheritHandle, int processId);
-    [DllImport("kernel32.dll", SetLastError = true)]
-    private static extern bool CloseHandle(IntPtr hObject);
+    public static extern int NtQuerySystemInformation(int SystemInformationClass, IntPtr SystemInformation, int SystemInformationLength, ref int ReturnLength);
 
+    [DllImport("ntdll.dll")]
+    public static extern int NtQueryObject(IntPtr Handle, int ObjectInformationClass, IntPtr ObjectInformation, int ObjectInformationLength, ref int ReturnLength);
+
+    [DllImport("ntdll.dll")]
+    public static extern int NtClose(IntPtr Handle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool DuplicateHandle(IntPtr hSourceProcessHandle, IntPtr hSourceHandle, IntPtr hTargetProcessHandle, out IntPtr lpTargetHandle, uint dwDesiredAccess, bool bInheritHandle, uint dwOptions);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr GetCurrentProcess();
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr OpenProcess(uint processAccess, bool bInheritHandle, int processId);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern bool CloseHandle(IntPtr hObject);
+}
+
+class Program : Form
+{
     private struct UNI
     {
         public ushort Length;
         public ushort MaximumLength;
         public IntPtr Buffer;
     }
-    UNI uni = new UNI
-    {
-        Length = 0,
-        MaximumLength = 0,
-        Buffer = IntPtr.Zero
-    };
-
     [StructLayout(LayoutKind.Sequential)]
     private struct NAME
     {
         public UNI Name;
     }
+
     [StructLayout(LayoutKind.Sequential)]
     private struct HANDLE
     {
@@ -59,8 +62,10 @@ class Program : Form
     private HashSet<IntPtr> Handles = new HashSet<IntPtr>();
     private ToolStripMenuItem menuStatus;
     private ManagementEventWatcher Watcher;
-    private string ProcessName = "RobloxPlayerBeta";
-    private string[] OrderedHandles = new string[] { "singletonmutex", "singletonevent" };
+    private readonly string ProcessName = "RobloxPlayerBeta";
+    private readonly string[] OrderedHandles = new string[] { "singletonmutex", "singletonevent" };
+    public string errorState = "";
+    public (int instances, int handles, int errors) counts = (0, 0, 0);
 
     static void Main()
     {
@@ -117,6 +122,7 @@ class Program : Form
 
         this.Watcher.Start();
         _ = Task.Run(() => this.MainLoop());
+        _ = Task.Run(() => this.StatusLoop());
     }
 
     static bool CheckDotNet()
@@ -126,15 +132,13 @@ class Program : Form
 
         try
         {
-            using (RegistryKey ndpKey = Registry.LocalMachine.OpenSubKey(registryPath))
-            {
-                if (ndpKey == null) return ShowErrorAndPrompt();
-                object versionObj = ndpKey.GetValue(versionKey);
-                if (versionObj == null) return ShowErrorAndPrompt();
-                Version installedVersion = new Version(versionObj.ToString());
-                if (installedVersion.Major < 8) return ShowErrorAndPrompt();
-                return true;
-            }
+            using RegistryKey ndpKey = Registry.LocalMachine.OpenSubKey(registryPath);
+            if (ndpKey == null) return ShowErrorAndPrompt();
+            object versionObj = ndpKey.GetValue(versionKey);
+            if (versionObj == null) return ShowErrorAndPrompt();
+            Version installedVersion = new Version(versionObj.ToString());
+            if (installedVersion.Major < 8) return ShowErrorAndPrompt();
+            return true;
         }
         catch
         {
@@ -165,15 +169,8 @@ class Program : Form
         base.OnLoad(e);
     }
 
-    private Task UpdateStatus(string taskStatus)
-    {
-        this.menuStatus.Text = taskStatus.Length > 63 ? taskStatus.Substring(0, 63) : taskStatus;
-        return Task.CompletedTask;
-    }
-
     private async Task MainLoop()
     {
-        await this.UpdateStatus("Running");
         while (true)
         {
             if (this.ProcQueue.Count == 0)
@@ -189,6 +186,17 @@ class Program : Form
         }
     }
 
+    private async Task StatusLoop()
+    {
+        while (true)
+        {
+            this.menuStatus.Text = "Instances: " + this.counts.instances.ToString();
+            this.menuStatus.Text += " | Handles: " + this.counts.handles.ToString();
+            this.menuStatus.Text += " | Errors: " + this.counts.errors.ToString();
+            await Task.Delay(1000);
+        }
+    }
+
     private async Task ProcessQueued()
     {
         Process currentProcess = this.ProcQueue.Peek();
@@ -197,6 +205,7 @@ class Program : Form
             if (await this.CloseHandles(await this.UpdateHandleList(currentProcess)))
             {
                 _ = this.ProcQueue.Dequeue();
+                this.counts.instances++;
             }
             else
             {
@@ -205,13 +214,14 @@ class Program : Form
         }
         catch (Exception ex)
         {
-            await this.BumpQueue("Error processing: " + (currentProcess != null ? currentProcess.Id.ToString() : "Unknown") + " - " + ex.Message);
+            this.errorState = "Error processing: " + (currentProcess != null ? currentProcess.Id.ToString() : "Unknown") + " - " + ex.Message;
+            await this.BumpQueue();
+            this.counts.errors++;
         }
     }
 
-    private async Task BumpQueue(string err = "")
+    private async Task BumpQueue()
     {
-        if (err != "") await this.UpdateStatus(err);
         this.ProcQueue.Enqueue(this.ProcQueue.Dequeue());
     }
 
@@ -219,7 +229,7 @@ class Program : Form
     {
         const uint MAXIMUM_ALLOWED = 0x02000000;
         const uint PROCESS_DUP_HANDLE = 0x00000040;
-        IntPtr processHandle = OpenProcess(PROCESS_DUP_HANDLE, false, process.Id);
+        IntPtr processHandle = NTapi.OpenProcess(PROCESS_DUP_HANDLE, false, process.Id);
         if (processHandle == IntPtr.Zero) return false;
 
         Queue<string> tdl = new(this.OrderedHandles);
@@ -232,15 +242,14 @@ class Program : Form
             foreach (var h in this.Handles)
             {
                 IntPtr alloc = Marshal.AllocHGlobal(0x10000);
-                IntPtr dup;
-                if (!DuplicateHandle(processHandle, h, GetCurrentProcess(), out dup, MAXIMUM_ALLOWED, false, 0))
+                if (!NTapi.DuplicateHandle(processHandle, h, NTapi.GetCurrentProcess(), out nint dup, MAXIMUM_ALLOWED, false, 0))
                 {
                     Marshal.FreeHGlobal(alloc);
                     continue;
                 }
 
                 int returnLength = 0;
-                _ = NtQueryObject(dup, 1, alloc, 0x10000, ref returnLength);
+                _ = NTapi.NtQueryObject(dup, 1, alloc, 0x10000, ref returnLength);
                 NAME nameInfo = (NAME)Marshal.PtrToStructure(alloc, typeof(NAME));
                 string name = nameInfo.Name.Buffer != IntPtr.Zero ? Marshal.PtrToStringUni(nameInfo.Name.Buffer, nameInfo.Name.Length / 2) : null;
 
@@ -252,7 +261,7 @@ class Program : Form
                 }
 
                 Marshal.FreeHGlobal(alloc);
-                _ = NtClose(dup);
+                _ = NTapi.NtClose(dup);
 
                 if (found) break;
             }
@@ -260,7 +269,7 @@ class Program : Form
             if (!found) break;
         }
 
-        _ = CloseHandle(processHandle);
+        _ = NTapi.CloseHandle(processHandle);
 
         return tdl.Count == 0;
     }
@@ -269,8 +278,8 @@ class Program : Form
     {
         return await Task.Run(() =>
         {
-            bool result = DuplicateHandle(processHandle, handle, GetCurrentProcess(), out nint dupHandle, 0, false, 0x00000001);
-            _ = NtClose(dupHandle);
+            bool result = NTapi.DuplicateHandle(processHandle, handle, NTapi.GetCurrentProcess(), out nint dupHandle, 0, false, 0x00000001);
+            _ = NTapi.NtClose(dupHandle);
             return result;
         });
     }
@@ -284,7 +293,7 @@ class Program : Form
 
              try
              {
-                 while (NtQuerySystemInformation(16, dataPtr, dataSize, ref length) == unchecked((int)0xC0000004))
+                 while (NTapi.NtQuerySystemInformation(16, dataPtr, dataSize, ref length) == unchecked((int)0xC0000004))
                  {
                      dataSize = length;
                      Marshal.FreeHGlobal(dataPtr);
@@ -310,5 +319,24 @@ class Program : Form
 
              return process;
          });
+    }
+}
+
+
+public class HandleManager
+{
+    public async Task<bool> CloseHandles(Process process, string[] targets)
+    {
+        foreach (var target in targets)
+        {
+            if (!await ProcessTargetHandle(process, target))
+                return false;
+        }
+        return true;
+    }
+
+    private async Task<bool> ProcessTargetHandle(Process process, string target)
+    {
+        return await Task.FromResult(true);
     }
 }

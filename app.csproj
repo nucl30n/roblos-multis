@@ -13,6 +13,7 @@
     <SelfContained>false</SelfContained>
     <ExcludeSymbolsFromPublish>true</ExcludeSymbolsFromPublish>
     <NoWarn>NETSDK1137</NoWarn>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
     <DebugType>none</DebugType>
